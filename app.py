@@ -7,7 +7,7 @@ from typing import List
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
-from matplotlib import font_manager
+from matplotlib import font_manager, rcParams
 
 from analytics.stats import (
     ShiftParseConfig,
@@ -31,9 +31,10 @@ def configure_matplotlib_font() -> None:
     font_path = Path("assets/NotoSansJP-Regular.ttf")
     if font_path.exists():
         font_manager.fontManager.addfont(str(font_path))
-        plt.rcParams["font.family"] = "Noto Sans JP"
+        rcParams["font.family"] = "Noto Sans JP"
     else:
-        plt.rcParams["font.family"] = "sans-serif"
+        rcParams["font.family"] = "sans-serif"
+    rcParams["axes.unicode_minus"] = False
 
 
 @st.cache_data
