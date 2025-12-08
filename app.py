@@ -28,26 +28,13 @@ SAMPLE_EMPLOYEES = ["101", "102", "201"]
 def configure_matplotlib_font() -> None:
     """Noto Sans JP があれば登録して matplotlib に適用。"""
 
-    base_dir = Path(__file__).resolve().parent
-    candidates = [
-        base_dir / "assets" / "NotoSansJP-Regular.ttf",
-        Path.cwd() / "assets" / "NotoSansJP-Regular.ttf",
-    ]
-
-    for path in candidates:
-        if path.exists():
-            font_manager.fontManager.addfont(str(path))
-            rcParams["font.family"] = ["Noto Sans JP", "sans-serif"]
-            break
+    font_path = Path("assets/NotoSansJP-Regular.ttf")
+    if font_path.exists():
+        font_manager.fontManager.addfont(str(font_path))
+        rcParams["font.family"] = "Noto Sans JP"
     else:
-        # フォントが見つからない場合もファミリーに指定し、環境に同梱されていれば拾えるようにする
-        rcParams["font.family"] = ["Noto Sans JP", "sans-serif"]
-
+        rcParams["font.family"] = "sans-serif"
     rcParams["axes.unicode_minus"] = False
-
-
-# モジュール読み込み時に一度フォントを適用しておく
-configure_matplotlib_font()
 
 
 @st.cache_data
