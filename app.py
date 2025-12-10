@@ -4,23 +4,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-import matplotlib as mpl
-from matplotlib import font_manager
-
-
-# フォントを最初に設定してから pyplot を読み込む
-FONT_PATH = Path(__file__).resolve().parent / "assets" / "NotoSansJP-VariableFont_wght.ttf"
-
-if FONT_PATH.exists():
-    font_manager.fontManager.addfont(str(FONT_PATH))
-    mpl.rcParams["font.family"] = "Noto Sans JP"
-    mpl.rcParams["axes.unicode_minus"] = False
-else:
-    print("WARN: Noto Sans JP font not found:", FONT_PATH)
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from matplotlib import font_manager, rcParams
 
 from analytics.stats import (
     ShiftParseConfig,
@@ -36,6 +23,18 @@ from parsers.pdf_parser import PdfShiftParser
 
 PAGE_TITLE = "シフト管理・分析ダッシュボード"
 SAMPLE_EMPLOYEES = ["101", "102", "201"]
+
+
+def configure_matplotlib_font() -> None:
+    """Noto Sans JP があれば登録して matplotlib に適用。"""
+
+    font_path = Path("assets/NotoSansJP-Regular.ttf")
+    if font_path.exists():
+        font_manager.fontManager.addfont(str(font_path))
+        rcParams["font.family"] = "Noto Sans JP"
+    else:
+        rcParams["font.family"] = "sans-serif"
+    rcParams["axes.unicode_minus"] = False
 
 
 @st.cache_data
@@ -155,6 +154,7 @@ def export_csv(df: pd.DataFrame) -> bytes:
 
 
 def main():
+    configure_matplotlib_font()
     st.set_page_config(page_title=PAGE_TITLE, layout="wide")
     st.title(PAGE_TITLE)
 
