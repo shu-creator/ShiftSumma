@@ -15,6 +15,7 @@ from .models import (
 
 WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
 HALF_SLOTS = {"AM半日", "PM半日"}
+WORKING_SLOTS_ORDER = ["AM半日", "Full", "PM半日"]
 
 
 def parse_hhmm_to_minutes(value: Optional[str]) -> Optional[int]:
@@ -203,14 +204,74 @@ def weekday_slot_stats(df: pd.DataFrame) -> pd.DataFrame:
     return grouped[["weekday", "slot", "count", "ratio_in_day"]].sort_values(["weekday", "slot"])
 
 
+def weekday_slot_stats_working(df: pd.DataFrame) -> pd.DataFrame:
+    """曜日×時間帯（勤務ありのみ）を集計。
+
+    - 対象: minutes > 0 かつ slot in {"AM半日","Full","PM半日"}
+    - 表示: 平日（月〜金）のみ
+    - ratio_in_day: 同一weekday内（勤務あり）の構成比
+    """
+
+    columns = [f.name for f in WeekdaySlotStats.__dataclass_fields__.values()]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working_df = df[(df["minutes"] > 0) & (df["slot"].isin(WORKING_SLOTS_ORDER))].copy()
+    working_df = working_df[working_df["is_weekday"]]
+    if working_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    # 全weekday×slot を作って 0 埋め（表示が安定する）
+    full_index = pd.MultiIndex.from_product(
+        [WEEKDAY_LABELS[:5], WORKING_SLOTS_ORDER],
+        names=["weekday", "slot"],
+    )
+    counts = working_df.groupby(["weekday", "slot"]).size().reindex(full_index, fill_value=0)
+    grouped = counts.reset_index(name="count")
+    totals = grouped.groupby("weekday")["count"].transform("sum")
+    grouped["ratio_in_day"] = grouped["count"].div(totals.where(totals > 0, 1))
+    grouped.loc[totals == 0, "ratio_in_day"] = 0.0
+
+    # 並び順を固定
+    grouped["weekday"] = pd.Categorical(grouped["weekday"], categories=WEEKDAY_LABELS[:5], ordered=True)
+    grouped["slot"] = pd.Categorical(grouped["slot"], categories=WORKING_SLOTS_ORDER, ordered=True)
+    return grouped[["weekday", "slot", "count", "ratio_in_day"]].sort_values(["weekday", "slot"])
+
+
+def weekday_na_counts(df: pd.DataFrame) -> pd.DataFrame:
+    """NA（非勤務）だけの件数を曜日別に集計。
+
+    対象: minutes == 0 かつ 平日(is_weekday==True)
+    """
+
+    if df.empty:
+        return pd.DataFrame(columns=["weekday", "count"])
+
+    na_df = df[(df["minutes"] == 0) & (df["is_weekday"])].copy()
+    if na_df.empty:
+        return pd.DataFrame(columns=["weekday", "count"])
+
+    counts = (
+        na_df.groupby("weekday")
+        .size()
+        .reindex(WEEKDAY_LABELS[:5], fill_value=0)
+        .reset_index(name="count")
+    )
+    counts["weekday"] = pd.Categorical(counts["weekday"], categories=WEEKDAY_LABELS[:5], ordered=True)
+    return counts[["weekday", "count"]].sort_values("weekday")
+
+
 __all__ = [
     "ShiftParseConfig",
     "ShiftRecord",
     "WEEKDAY_LABELS",
+    "WORKING_SLOTS_ORDER",
     "build_shift_record",
     "build_shift_records_from_rows",
     "to_dataframe",
     "weekly_employee_stats",
     "weekly_team_stats",
     "weekday_slot_stats",
+    "weekday_slot_stats_working",
+    "weekday_na_counts",
 ]
