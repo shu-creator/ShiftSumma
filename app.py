@@ -12,10 +12,13 @@ from matplotlib import font_manager, rcParams
 from analytics.stats import (
     ShiftParseConfig,
     WEEKDAY_LABELS,
+    WORKING_SLOTS_ORDER,
     build_shift_records_from_rows,
     to_dataframe,
     weekly_employee_stats,
+    weekday_na_counts,
     weekday_slot_stats,
+    weekday_slot_stats_working,
 )
 from parsers.excel_parser import ExcelShiftParser
 from parsers.pdf_parser import PdfShiftParser
@@ -149,6 +152,53 @@ def plot_weekday_slot_heatmap(slot_df: pd.DataFrame):
     return fig
 
 
+def plot_weekday_slot_heatmap_working(slot_df: pd.DataFrame):
+    """勤務あり（minutes>0）だけの曜日×時間帯ヒートマップ。
+
+    - 平日（月〜金）のみ
+    - 列順は WORKING_SLOTS_ORDER に固定
+    """
+
+    if slot_df.empty:
+        return None
+    pivot = (
+        slot_df.pivot(index="weekday", columns="slot", values="count")
+        .reindex(index=WEEKDAY_LABELS[:5], columns=WORKING_SLOTS_ORDER)
+        .fillna(0)
+    )
+    fig, ax = plt.subplots()
+    data = pivot.values
+    cax = ax.imshow(data, aspect="auto")
+    ax.set_xticks(range(pivot.shape[1]))
+    ax.set_xticklabels(pivot.columns)
+    ax.set_yticks(range(pivot.shape[0]))
+    ax.set_yticklabels(pivot.index)
+    max_val = float(data.max()) if data.size else 0.0
+    for i in range(pivot.shape[0]):
+        for j in range(pivot.shape[1]):
+            value = data[i, j]
+            # 背景が濃いところは白文字にする（max=0 の場合は黒固定）
+            color = "white" if (max_val > 0 and value >= max_val * 0.6) else "black"
+            ax.text(j, i, int(value), ha="center", va="center", color=color)
+    fig.colorbar(cax, ax=ax, label="件数")
+    ax.set_xlabel("時間帯")
+    ax.set_ylabel("曜日")
+    ax.set_title("曜日×時間帯（勤務あり）ヒートマップ")
+    return fig
+
+
+def plot_weekday_na_bar(na_df: pd.DataFrame):
+    if na_df.empty:
+        return None
+    fig, ax = plt.subplots()
+    ax.bar(na_df["weekday"].astype(str), na_df["count"].astype(int))
+    ax.set_xlabel("曜日")
+    ax.set_ylabel("NA件数")
+    ax.set_title("曜日別 NA（非勤務）件数")
+    ax.grid(True, axis="y", linestyle=":", alpha=0.5)
+    return fig
+
+
 def export_csv(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8-sig")
 
@@ -219,20 +269,37 @@ def main():
 
     with tabs[1]:
         st.subheader("C. 曜日×時間帯のシフト配置")
-        slot_df = weekday_slot_stats(shift_df)
-        st.dataframe(slot_df)
-        heatmap = plot_weekday_slot_heatmap(slot_df)
-        if heatmap:
-            st.pyplot(heatmap)
-        st.caption("将来的に曜日別の目標人数を追加し、差分を可視化できる設計にしています。")
+        st.markdown("#### (A) 勤務ありのみ（minutes>0 / AM半日・Full・PM半日）")
+        working_slot_df = weekday_slot_stats_working(shift_df)
+        st.dataframe(working_slot_df)
+        working_heatmap = plot_weekday_slot_heatmap_working(working_slot_df)
+        if working_heatmap:
+            st.pyplot(working_heatmap)
+
+        st.markdown("#### (B) NA（非勤務）だけの件数（minutes==0）")
+        na_df = weekday_na_counts(shift_df)
+        st.dataframe(na_df)
+        na_bar = plot_weekday_na_bar(na_df)
+        if na_bar:
+            st.pyplot(na_bar)
+
+        st.caption("勤務ありの分布（偏り）と、非勤務/欠損（NA）を切り分けて確認できます。")
 
     with tabs[2]:
         st.subheader("D. データエクスポート")
         weekly_emp = weekly_employee_stats(shift_df)
         slot_df = weekday_slot_stats(shift_df)
+        working_slot_df = weekday_slot_stats_working(shift_df)
+        na_df = weekday_na_counts(shift_df)
         st.download_button("ShiftRecord CSV", data=export_csv(shift_df), file_name="shift_records.csv")
         st.download_button("WeeklyEmployeeStats CSV", data=export_csv(weekly_emp), file_name="weekly_employee_stats.csv")
         st.download_button("WeekdaySlotStats CSV", data=export_csv(slot_df), file_name="weekday_slot_stats.csv")
+        st.download_button(
+            "WeekdaySlotStats(working) CSV",
+            data=export_csv(working_slot_df),
+            file_name="weekday_slot_stats_working.csv",
+        )
+        st.download_button("WeekdayNA(counts) CSV", data=export_csv(na_df), file_name="weekday_na_counts.csv")
 
 
 if __name__ == "__main__":
