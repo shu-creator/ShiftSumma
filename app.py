@@ -276,7 +276,7 @@ def main():
         if working_heatmap:
             st.pyplot(working_heatmap)
 
-        st.markdown("#### (B) NA（非勤務）だけの件数（minutes==0）")
+        st.markdown("#### (B) NA（非勤務）だけの件数（平日のみ / minutes==0）")
         na_df = weekday_na_counts(shift_df)
         st.dataframe(na_df)
         na_bar = plot_weekday_na_bar(na_df)

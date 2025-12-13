@@ -241,18 +241,23 @@ def weekday_slot_stats_working(df: pd.DataFrame) -> pd.DataFrame:
 def weekday_na_counts(df: pd.DataFrame) -> pd.DataFrame:
     """NA（非勤務）だけの件数を曜日別に集計。
 
-    対象: minutes == 0
+    対象: minutes == 0 かつ 平日(is_weekday==True)
     """
 
     if df.empty:
         return pd.DataFrame(columns=["weekday", "count"])
 
-    na_df = df[df["minutes"] == 0].copy()
+    na_df = df[(df["minutes"] == 0) & (df["is_weekday"])].copy()
     if na_df.empty:
         return pd.DataFrame(columns=["weekday", "count"])
 
-    counts = na_df.groupby("weekday").size().reindex(WEEKDAY_LABELS, fill_value=0).reset_index(name="count")
-    counts["weekday"] = pd.Categorical(counts["weekday"], categories=WEEKDAY_LABELS, ordered=True)
+    counts = (
+        na_df.groupby("weekday")
+        .size()
+        .reindex(WEEKDAY_LABELS[:5], fill_value=0)
+        .reset_index(name="count")
+    )
+    counts["weekday"] = pd.Categorical(counts["weekday"], categories=WEEKDAY_LABELS[:5], ordered=True)
     return counts[["weekday", "count"]].sort_values("weekday")
 
 
