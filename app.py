@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -8,6 +10,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 from matplotlib import font_manager, rcParams
+
+import pdfplumber
 
 from analytics.stats import (
     ShiftParseConfig,
@@ -23,6 +27,8 @@ from parsers.pdf_parser import PdfShiftParser
 
 PAGE_TITLE = "シフト管理・分析ダッシュボード"
 SAMPLE_EMPLOYEES = ["101", "102", "201"]
+MONTH_PATTERN = re.compile(r"(\d{1,2})\s*月")
+YEAR_PATTERN = re.compile(r"(20\d{2})")
 
 
 def configure_matplotlib_font() -> None:
@@ -35,6 +41,43 @@ def configure_matplotlib_font() -> None:
     else:
         rcParams["font.family"] = "sans-serif"
     rcParams["axes.unicode_minus"] = False
+
+
+def _extract_month(text: str) -> int | None:
+    if not text:
+        return None
+    match = MONTH_PATTERN.search(text)
+    if not match:
+        return None
+    month_value = int(match.group(1))
+    return month_value if 1 <= month_value <= 12 else None
+
+
+def _extract_year(text: str) -> int | None:
+    if not text:
+        return None
+    match = YEAR_PATTERN.search(text)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def infer_pdf_year_month(pdf_bytes: bytes, filename: str) -> str | None:
+    header_text = ""
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            header_text = pdf.pages[0].extract_text() or ""
+    except Exception:
+        header_text = ""
+
+    stem = Path(filename).stem
+
+    month = _extract_month(header_text) or _extract_month(stem)
+    year = _extract_year(header_text) or _extract_year(stem)
+
+    if month is None or year is None:
+        return None
+    return f"{year}-{month:02d}"
 
 
 @st.cache_data
@@ -66,16 +109,19 @@ def generate_sample_records(target_month: str) -> pd.DataFrame:
     return to_dataframe(records)
 
 
-def parse_uploaded_file(upload, target_month: str, config: ShiftParseConfig) -> pd.DataFrame:
+def parse_uploaded_file(upload, target_month: str, config: ShiftParseConfig) -> tuple[pd.DataFrame, str | None]:
     suffix = Path(upload.name).suffix.lower()
     if suffix in {".xlsx", ".xls"}:
         parser = ExcelShiftParser(config)
-        return parser.read(upload)
+        return parser.read(upload), None
     if suffix == ".pdf":
+        pdf_bytes = upload.getvalue()
+        inferred_month = infer_pdf_year_month(pdf_bytes, upload.name)
         parser = PdfShiftParser(config)
-        return parser.read(upload, target_month)
+        pdf_stream = io.BytesIO(pdf_bytes)
+        return parser.read(pdf_stream, target_month), inferred_month
     st.warning("PDF か Excel ファイルをアップロードしてください。")
-    return pd.DataFrame()
+    return pd.DataFrame(), None
 
 
 def apply_exclusions(df: pd.DataFrame, exclude_ids: List[str]) -> pd.DataFrame:
@@ -103,6 +149,10 @@ def plot_employee_trend(stats_df: pd.DataFrame, employee: str, target_hours: flo
     ax.set_title(f"社員 {employee} の週別実働時間")
     ax.legend()
     ax.grid(True, linestyle=":", alpha=0.5)
+    if not emp_df.empty:
+        week_ticks = sorted(emp_df["week_index"].astype(int).unique().tolist())
+        ax.set_xticks(week_ticks)
+        ax.set_xticklabels([str(w) for w in week_ticks])
     return fig
 
 
@@ -173,13 +223,17 @@ def main():
 
     if "shift_df" not in st.session_state:
         st.session_state.shift_df = pd.DataFrame()
+    if "source_month" not in st.session_state:
+        st.session_state.source_month = None
 
     if run_button and uploaded:
-        shift_df = parse_uploaded_file(uploaded, target_month, config)
+        shift_df, inferred_month = parse_uploaded_file(uploaded, target_month, config)
         shift_df = apply_exclusions(shift_df, exclude_ids)
         st.session_state.shift_df = shift_df
+        st.session_state.source_month = inferred_month
     elif sample_button:
         st.session_state.shift_df = generate_sample_records(target_month)
+        st.session_state.source_month = target_month
 
     shift_df = st.session_state.shift_df
 
@@ -189,6 +243,9 @@ def main():
         return
 
     st.write(f"ShiftRecord 件数: {len(shift_df)}")
+    source_month = st.session_state.get("source_month")
+    if source_month and source_month != target_month:
+        st.warning(f"年月が不一致: ファイル側は {source_month}, 選択は {target_month} です。")
     st.warning(compute_warning(shift_df))
 
     tabs = st.tabs(
